@@ -6,7 +6,7 @@ Production-ready FastAPI SaaS backend starter with PostgreSQL, SQLAlchemy 2.0, A
 
 - FastAPI application with `/health` and `/health/db`
 - Async PostgreSQL access through SQLAlchemy 2.0 and `asyncpg`
-- Alembic migration setup with an initial `users` table
+- Alembic migration setup through portfolio and folio tables
 - JWT access and refresh token authentication
 - Bcrypt password hashing
 - Role-based access control with `SUPER_ADMIN`, `ADVISOR`, `CUSTOMER`, and `COMPLIANCE`
@@ -15,6 +15,8 @@ Production-ready FastAPI SaaS backend starter with PostgreSQL, SQLAlchemy 2.0, A
 - Centralized JSON error responses
 - Environment-based configuration using `.env`
 - Docker Compose with app and PostgreSQL
+- Advisor profiles, customer/KYC records, mutual fund schemes, folios, and portfolio holdings
+- Customer portfolio summary and advisor dashboard AUM from active holdings
 
 ## Run With Docker
 
@@ -160,6 +162,60 @@ Dashboard summary:
 
 ```bash
 curl http://localhost:8010/api/advisors/dashboard-summary \
+  -H "Authorization: Bearer <access-token>"
+```
+
+`total_aum` is calculated from active `portfolio_holdings.current_value`. SIP and transaction fields remain placeholders until those modules are added.
+
+## Customer Module
+
+Customer routes require a bearer token. `ADVISOR` users can manage their own customers, `SUPER_ADMIN` can manage all customers, and `COMPLIANCE` can read only.
+
+```bash
+curl -X POST http://localhost:8010/api/customers \
+  -H "Authorization: Bearer <access-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"full_name":"Test Customer","email":"customer@example.com","phone":"+15555550123","pan_number":"ABCDE1234F","date_of_birth":"1990-01-01","risk_profile":"MODERATE"}'
+```
+
+## Portfolio + Folio Module
+
+v0.3 adds mutual fund schemes, customer folios, portfolio holdings, and customer portfolio summary.
+
+Scheme catalog:
+
+```bash
+curl -X POST http://localhost:8010/api/schemes \
+  -H "Authorization: Bearer <super-admin-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"scheme_code":"MF001","scheme_name":"Bluechip Fund","amc_name":"Example AMC","category":"Equity","sub_category":"Large Cap","risk_level":"High"}'
+
+curl http://localhost:8010/api/schemes \
+  -H "Authorization: Bearer <access-token>"
+```
+
+Folios:
+
+```bash
+curl -X POST http://localhost:8010/api/folios \
+  -H "Authorization: Bearer <advisor-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"customer_id":"<customer-id>","folio_number":"FOLIO-123","platform":"RTA"}'
+```
+
+Holdings:
+
+```bash
+curl -X POST http://localhost:8010/api/portfolio-holdings \
+  -H "Authorization: Bearer <advisor-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"customer_id":"<customer-id>","folio_id":"<folio-id>","scheme_id":"<scheme-id>","invested_amount":"10000.00","current_value":"11250.00","units":"100.0000","average_nav":"100.0000","current_nav":"112.5000","valuation_date":"2026-05-17"}'
+```
+
+Portfolio summary:
+
+```bash
+curl http://localhost:8010/api/customers/<customer-id>/portfolio-summary \
   -H "Authorization: Bearer <access-token>"
 ```
 

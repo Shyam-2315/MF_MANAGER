@@ -17,7 +17,7 @@ from app.exceptions import (
 )
 from app.logging_config import setup_logging
 from app.middleware.request_logging import RequestLoggingMiddleware
-from app.routes import advisors, auth, health, users
+from app.routes import advisors, auth, customers, health, portfolio, users
 from app.services.bootstrap_service import bootstrap_first_admin
 
 setup_logging()
@@ -57,3 +57,8 @@ app.include_router(health.router)
 app.include_router(auth.router, prefix=settings.api_prefix)
 app.include_router(users.router, prefix=settings.api_prefix)
 app.include_router(advisors.router, prefix=settings.api_prefix)
+app.include_router(customers.router, prefix=settings.api_prefix)
+app.include_router(portfolio.schemes_router, prefix=settings.api_prefix)
+app.include_router(portfolio.folios_router, prefix=settings.api_prefix)
+app.include_router(portfolio.holdings_router, prefix=settings.api_prefix)
+app.include_router(portfolio.summary_router, prefix=settings.api_prefix)

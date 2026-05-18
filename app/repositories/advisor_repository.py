@@ -6,6 +6,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.advisor import Advisor
+from app.models.portfolio import PortfolioHolding
 
 
 class AdvisorRepository:
@@ -37,14 +38,13 @@ class AdvisorRepository:
         return 0
 
     async def sum_total_aum(self, advisor_id: UUID | None = None) -> Decimal:
-        for table_name, amount_column in (
-            ("customer_portfolios", "current_value"),
-            ("portfolios", "current_value"),
-            ("investments", "current_value"),
-        ):
-            if await self._table_exists(table_name) and await self._column_exists(table_name, amount_column):
-                return await self._sum_numeric(table_name, amount_column, advisor_id=advisor_id)
-        return Decimal("0")
+        statement = select(func.coalesce(func.sum(PortfolioHolding.current_value), 0)).where(
+            PortfolioHolding.is_active.is_(True)
+        )
+        if advisor_id is not None:
+            statement = statement.where(PortfolioHolding.advisor_id == advisor_id)
+        result = await self.db.execute(statement)
+        return Decimal(result.scalar_one() or 0)
 
     async def sum_monthly_sip_amount(self, advisor_id: UUID | None = None) -> Decimal:
         if not await self._table_exists("sips"):
@@ -61,11 +61,13 @@ class AdvisorRepository:
         if advisor_id is not None and not await self._column_exists("customers", "advisor_id"):
             return 0
 
-        where_clauses = ["kyc_status IN ('PENDING', 'IN_PROGRESS', 'UNDER_REVIEW')"]
+        where_clauses = ["kyc_status = 'PENDING'"]
         params: dict[str, Any] = {}
         if advisor_id is not None and await self._column_exists("customers", "advisor_id"):
             where_clauses.append("advisor_id = :advisor_id")
             params["advisor_id"] = advisor_id
+        if await self._column_exists("customers", "is_active"):
+            where_clauses.append("is_active = true")
 
         result = await self.db.execute(
             text(f"SELECT COUNT(*) FROM customers WHERE {' AND '.join(where_clauses)}"),
@@ -159,12 +161,15 @@ class AdvisorRepository:
 
     async def _count_rows(self, table_name: str, advisor_id: UUID | None = None) -> int:
         params: dict[str, Any] = {}
-        where_sql = ""
+        where_clauses: list[str] = []
         if advisor_id is not None:
             if not await self._column_exists(table_name, "advisor_id"):
                 return 0
-            where_sql = " WHERE advisor_id = :advisor_id"
+            where_clauses.append("advisor_id = :advisor_id")
             params["advisor_id"] = advisor_id
+        if table_name == "customers" and await self._column_exists(table_name, "is_active"):
+            where_clauses.append("is_active = true")
+        where_sql = f" WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
         result = await self.db.execute(text(f"SELECT COUNT(*) FROM {table_name}{where_sql}"), params)
         return int(result.scalar_one() or 0)
 

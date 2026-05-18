@@ -48,6 +48,12 @@ class ForbiddenException(AppException):
     message = "Forbidden"
 
 
+class BadRequestException(AppException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    error_code = "bad_request"
+    message = "Bad request"
+
+
 class ConflictException(AppException):
     status_code = status.HTTP_409_CONFLICT
     error_code = "conflict"
