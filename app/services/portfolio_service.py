@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
@@ -10,10 +11,16 @@ from app.models.portfolio import Folio, MutualFundScheme, PortfolioHolding
 from app.models.user import User, UserRole
 from app.repositories.advisor_repository import AdvisorRepository
 from app.repositories.customer_repository import CustomerRepository
-from app.repositories.portfolio_repository import FolioRepository, MutualFundSchemeRepository, PortfolioHoldingRepository
+from app.repositories.portfolio_repository import (
+    FolioRepository,
+    MutualFundNAVRepository,
+    MutualFundSchemeRepository,
+    PortfolioHoldingRepository,
+)
 from app.schemas.portfolio import (
     FolioCreate,
     FolioUpdate,
+    HoldingValuationRecalculationRead,
     MutualFundSchemeCreate,
     MutualFundSchemeUpdate,
     PortfolioHoldingCreate,
@@ -193,6 +200,7 @@ class PortfolioHoldingService:
         self.folios = FolioRepository(db)
         self.holdings = PortfolioHoldingRepository(db)
         self.schemes = MutualFundSchemeRepository(db)
+        self.navs = MutualFundNAVRepository(db)
 
     async def create_holding(self, current_user: User, payload: PortfolioHoldingCreate) -> PortfolioHolding:
         if current_user.role not in {UserRole.ADVISOR, UserRole.SUPER_ADMIN}:
@@ -263,6 +271,48 @@ class PortfolioHoldingService:
 
         summary = await self.holdings.calculate_customer_portfolio_summary(customer_id)
         return PortfolioSummaryRead(customer_id=customer_id, **summary)
+
+    async def recalculate_valuations(self, current_user: User) -> HoldingValuationRecalculationRead:
+        if current_user.role == UserRole.SUPER_ADMIN:
+            advisor_id = None
+        elif current_user.role == UserRole.ADVISOR:
+            advisor = await self.advisors.get_by_user_id(current_user.id)
+            if advisor is None:
+                raise NotFoundException("Advisor profile not found")
+            advisor_id = advisor.id
+        else:
+            raise ForbiddenException("Insufficient permissions")
+
+        holdings = await self.holdings.list_active_for_valuation(advisor_id)
+        holdings_updated = 0
+        total_current_value = Decimal("0")
+        valuation_date = None
+        latest_by_scheme: dict[UUID, tuple[Decimal, date]] = {}
+
+        for holding in holdings:
+            nav_tuple = latest_by_scheme.get(holding.scheme_id)
+            if nav_tuple is None:
+                latest_nav = await self.navs.get_latest_nav_for_scheme(holding.scheme_id)
+                if latest_nav is None:
+                    total_current_value += Decimal(holding.current_value or 0)
+                    continue
+                nav_tuple = (Decimal(latest_nav.nav_value), latest_nav.nav_date)
+                latest_by_scheme[holding.scheme_id] = nav_tuple
+            nav_value, nav_date = nav_tuple
+            holding.current_nav = nav_value
+            holding.valuation_date = nav_date
+            holding.current_value = Decimal(holding.units) * nav_value
+            total_current_value += Decimal(holding.current_value)
+            if valuation_date is None or nav_date > valuation_date:
+                valuation_date = nav_date
+            holdings_updated += 1
+
+        await self.db.commit()
+        return HoldingValuationRecalculationRead(
+            holdings_updated=holdings_updated,
+            total_current_value=total_current_value,
+            valuation_date=valuation_date,
+        )
 
     async def _validate_holding_relationships(
         self,

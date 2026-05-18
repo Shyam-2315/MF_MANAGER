@@ -49,9 +49,9 @@ class AdvisorRepository:
     async def sum_monthly_sip_amount(self, advisor_id: UUID | None = None) -> Decimal:
         if not await self._table_exists("sips"):
             return Decimal("0")
-        if not await self._column_exists("sips", "amount"):
+        if not await self._column_exists("sips", "sip_amount"):
             return Decimal("0")
-        return await self._sum_numeric("sips", "amount", advisor_id=advisor_id, active_only=True)
+        return await self._sum_numeric("sips", "sip_amount", advisor_id=advisor_id, active_only=True)
 
     async def count_pending_kyc_customers(self, advisor_id: UUID | None = None) -> int:
         if not await self._table_exists("customers"):
@@ -83,6 +83,8 @@ class AdvisorRepository:
 
         where_clauses: list[str] = []
         params: dict[str, Any] = {}
+        if await self._column_exists("sips", "is_active"):
+            where_clauses.append("is_active = true")
         if await self._column_exists("sips", "status"):
             where_clauses.append("status = 'ACTIVE'")
         if advisor_id is not None and await self._column_exists("sips", "advisor_id"):
@@ -101,19 +103,32 @@ class AdvisorRepository:
 
         columns = await self._existing_columns(
             "transactions",
-            ("id", "customer_id", "transaction_type", "type", "amount", "status", "transaction_date", "created_at"),
+            (
+                "id",
+                "customer_id",
+                "advisor_id",
+                "transaction_type",
+                "type",
+                "amount",
+                "transaction_status",
+                "status",
+                "transaction_date",
+                "created_at",
+                "is_active",
+            ),
         )
         if "id" not in columns:
             return []
 
         transaction_type_column = "transaction_type" if "transaction_type" in columns else "type"
+        status_column = "transaction_status" if "transaction_status" in columns else "status"
         date_column = "transaction_date" if "transaction_date" in columns else "created_at"
         select_columns = [
             "id",
             "customer_id" if "customer_id" in columns else "NULL AS customer_id",
             f"{transaction_type_column} AS transaction_type" if transaction_type_column in columns else "NULL AS transaction_type",
             "amount" if "amount" in columns else "0 AS amount",
-            "status" if "status" in columns else "NULL AS status",
+            f"{status_column} AS status" if status_column in columns else "NULL AS status",
             f"{date_column} AS transaction_date" if date_column in columns else "NULL AS transaction_date",
         ]
 
@@ -122,6 +137,10 @@ class AdvisorRepository:
         if advisor_id is not None and await self._column_exists("transactions", "advisor_id"):
             where_clauses.append("advisor_id = :advisor_id")
             params["advisor_id"] = advisor_id
+        if "is_active" in columns:
+            where_clauses.append("is_active = true")
+        if status_column in columns:
+            where_clauses.append(f"{status_column} = 'COMPLETED'")
 
         where_sql = f" WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
         order_sql = f" ORDER BY {date_column} DESC" if date_column in columns else ""
@@ -190,6 +209,10 @@ class AdvisorRepository:
             params["advisor_id"] = advisor_id
         if active_only and await self._column_exists(table_name, "status"):
             where_clauses.append("status = 'ACTIVE'")
+        if active_only and await self._column_exists(table_name, "is_active"):
+            where_clauses.append("is_active = true")
+        if active_only and table_name == "sips" and await self._column_exists(table_name, "frequency"):
+            where_clauses.append("frequency = 'MONTHLY'")
 
         where_sql = f" WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
         result = await self.db.execute(

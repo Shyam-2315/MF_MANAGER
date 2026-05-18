@@ -132,3 +132,9 @@ class PortfolioSummaryRead(BaseModel):
     total_gain_loss: Decimal = Decimal("0")
     total_gain_loss_percentage: Decimal = Decimal("0")
     holdings_count: int = 0
+
+
+class HoldingValuationRecalculationRead(BaseModel):
+    holdings_updated: int = 0
+    total_current_value: Decimal = Decimal("0")
+    valuation_date: date | None = None

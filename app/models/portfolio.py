@@ -109,3 +109,29 @@ Index(
     unique=True,
     postgresql_where=PortfolioHolding.is_active.is_(True),
 )
+
+
+class MutualFundNAV(Base):
+    __tablename__ = "mutual_fund_nav_history"
+    __table_args__ = (
+        UniqueConstraint("scheme_id", "nav_date", name="uq_mutual_fund_nav_scheme_date"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    scheme_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("mutual_fund_schemes.id", ondelete="RESTRICT"),
+        index=True,
+        nullable=False,
+    )
+    nav_date: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    nav_value: Mapped[Decimal] = mapped_column(Numeric(12, 4), nullable=False)
+    source: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )

@@ -10,6 +10,7 @@ from app.schemas.portfolio import (
     FolioCreate,
     FolioRead,
     FolioUpdate,
+    HoldingValuationRecalculationRead,
     MutualFundSchemeCreate,
     MutualFundSchemeRead,
     MutualFundSchemeUpdate,
@@ -165,6 +166,14 @@ async def delete_holding(
     current_user: CurrentUser,
 ) -> None:
     await PortfolioHoldingService(db).delete_holding(current_user, holding_id)
+
+
+@holdings_router.post("/recalculate-valuations", response_model=HoldingValuationRecalculationRead)
+async def recalculate_holding_valuations(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: CurrentUser,
+) -> HoldingValuationRecalculationRead:
+    return await PortfolioHoldingService(db).recalculate_valuations(current_user)
 
 
 @summary_router.get("/{customer_id}/portfolio-summary", response_model=PortfolioSummaryRead)

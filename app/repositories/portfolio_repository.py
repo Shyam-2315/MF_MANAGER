@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -5,7 +6,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.portfolio import Folio, MutualFundScheme, PortfolioHolding
+from app.models.portfolio import Folio, MutualFundNAV, MutualFundScheme, PortfolioHolding
 
 
 class MutualFundSchemeRepository:
@@ -235,3 +236,83 @@ class PortfolioHoldingRepository:
             statement = statement.where(PortfolioHolding.advisor_id == advisor_id)
         result = await self.db.execute(statement)
         return Decimal(result.scalar_one() or 0)
+
+    async def list_active_for_valuation(self, advisor_id: UUID | None = None) -> list[PortfolioHolding]:
+        statement = select(PortfolioHolding).where(PortfolioHolding.is_active.is_(True))
+        if advisor_id is not None:
+            statement = statement.where(PortfolioHolding.advisor_id == advisor_id)
+        result = await self.db.execute(statement.order_by(PortfolioHolding.created_at.asc()))
+        return list(result.scalars().all())
+
+
+class MutualFundNAVRepository:
+    def __init__(self, db: AsyncSession) -> None:
+        self.db = db
+
+    async def create(self, data: dict[str, Any]) -> MutualFundNAV:
+        nav = MutualFundNAV(**data)
+        self.db.add(nav)
+        await self.db.flush()
+        return nav
+
+    async def get_by_id(self, nav_id: UUID, *, active_only: bool = True) -> MutualFundNAV | None:
+        statement = select(MutualFundNAV).where(MutualFundNAV.id == nav_id)
+        if active_only:
+            statement = statement.where(MutualFundNAV.is_active.is_(True))
+        result = await self.db.execute(statement)
+        return result.scalar_one_or_none()
+
+    async def get_by_scheme_and_date(
+        self,
+        *,
+        scheme_id: UUID,
+        nav_date: date,
+        active_only: bool = True,
+    ) -> MutualFundNAV | None:
+        statement = select(MutualFundNAV).where(MutualFundNAV.scheme_id == scheme_id, MutualFundNAV.nav_date == nav_date)
+        if active_only:
+            statement = statement.where(MutualFundNAV.is_active.is_(True))
+        result = await self.db.execute(statement)
+        return result.scalar_one_or_none()
+
+    async def get_latest_nav_for_scheme(self, scheme_id: UUID, *, active_only: bool = True) -> MutualFundNAV | None:
+        statement = select(MutualFundNAV).where(MutualFundNAV.scheme_id == scheme_id)
+        if active_only:
+            statement = statement.where(MutualFundNAV.is_active.is_(True))
+        statement = statement.order_by(MutualFundNAV.nav_date.desc(), MutualFundNAV.created_at.desc()).limit(1)
+        result = await self.db.execute(statement)
+        return result.scalar_one_or_none()
+
+    async def list_by_scheme(
+        self,
+        *,
+        scheme_id: UUID | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        limit: int = 50,
+        offset: int = 0,
+        active_only: bool = True,
+    ) -> list[MutualFundNAV]:
+        statement = select(MutualFundNAV)
+        if active_only:
+            statement = statement.where(MutualFundNAV.is_active.is_(True))
+        if scheme_id is not None:
+            statement = statement.where(MutualFundNAV.scheme_id == scheme_id)
+        if date_from is not None:
+            statement = statement.where(MutualFundNAV.nav_date >= date_from)
+        if date_to is not None:
+            statement = statement.where(MutualFundNAV.nav_date <= date_to)
+        statement = statement.order_by(MutualFundNAV.nav_date.desc(), MutualFundNAV.created_at.desc()).limit(limit).offset(offset)
+        result = await self.db.execute(statement)
+        return list(result.scalars().all())
+
+    async def update(self, nav: MutualFundNAV, data: dict[str, Any]) -> MutualFundNAV:
+        for field, value in data.items():
+            setattr(nav, field, value)
+        await self.db.flush()
+        return nav
+
+    async def soft_delete(self, nav: MutualFundNAV) -> MutualFundNAV:
+        nav.is_active = False
+        await self.db.flush()
+        return nav

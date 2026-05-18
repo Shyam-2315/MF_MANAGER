@@ -6,7 +6,7 @@ Production-ready FastAPI SaaS backend starter with PostgreSQL, SQLAlchemy 2.0, A
 
 - FastAPI application with `/health` and `/health/db`
 - Async PostgreSQL access through SQLAlchemy 2.0 and `asyncpg`
-- Alembic migration setup through portfolio and folio tables
+- Alembic migration setup through transaction tables
 - JWT access and refresh token authentication
 - Bcrypt password hashing
 - Role-based access control with `SUPER_ADMIN`, `ADVISOR`, `CUSTOMER`, and `COMPLIANCE`
@@ -15,8 +15,8 @@ Production-ready FastAPI SaaS backend starter with PostgreSQL, SQLAlchemy 2.0, A
 - Centralized JSON error responses
 - Environment-based configuration using `.env`
 - Docker Compose with app and PostgreSQL
-- Advisor profiles, customer/KYC records, mutual fund schemes, folios, and portfolio holdings
-- Customer portfolio summary and advisor dashboard AUM from active holdings
+- Advisor profiles, customer/KYC records, mutual fund schemes, folios, portfolio holdings, SIPs, transactions, and NAV history
+- Customer portfolio, SIP, and transaction summaries, plus advisor dashboard AUM, active monthly SIP totals, recent transactions, and NAV-based valuation recalculation
 
 ## Run With Docker
 
@@ -165,7 +165,7 @@ curl http://localhost:8010/api/advisors/dashboard-summary \
   -H "Authorization: Bearer <access-token>"
 ```
 
-`total_aum` is calculated from active `portfolio_holdings.current_value`. SIP and transaction fields remain placeholders until those modules are added.
+`total_aum` is calculated from active `portfolio_holdings.current_value`. `monthly_sip_amount` and `active_sips` are calculated from active monthly SIPs. `recent_transactions` returns recent completed investment transactions.
 
 ## Customer Module
 
@@ -216,6 +216,95 @@ Portfolio summary:
 
 ```bash
 curl http://localhost:8010/api/customers/<customer-id>/portfolio-summary \
+  -H "Authorization: Bearer <access-token>"
+```
+
+## SIP Module
+
+v0.4 adds advisor-owned SIP management under `/api/sips`.
+
+`ADVISOR` users can manage SIPs only for their own customers and folios. `SUPER_ADMIN` can access all SIPs. `COMPLIANCE` can read and list SIPs, but cannot create, update, or delete them. `CUSTOMER` role access is blocked for advisor SIP APIs.
+
+Create SIP:
+
+```bash
+curl -X POST http://localhost:8010/api/sips \
+  -H "Authorization: Bearer <advisor-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"customer_id":"<customer-id>","folio_id":"<folio-id>","scheme_id":"<scheme-id>","sip_amount":"2500.00","frequency":"MONTHLY","status":"ACTIVE","start_date":"2026-05-01","next_due_date":"2026-06-01","mandate_reference":"MANDATE-123"}'
+```
+
+List SIPs:
+
+```bash
+curl "http://localhost:8010/api/sips?limit=50&offset=0&status=ACTIVE&frequency=MONTHLY" \
+  -H "Authorization: Bearer <access-token>"
+```
+
+Customer SIP summary:
+
+```bash
+curl http://localhost:8010/api/customers/<customer-id>/sip-summary \
+  -H "Authorization: Bearer <access-token>"
+```
+
+## Transactions Module
+
+v0.5 adds investment transaction tracking under `/api/transactions`.
+
+`ADVISOR` users can manage transactions only for their own customers and folios. `SUPER_ADMIN` can access all transactions. `COMPLIANCE` can read and list transactions, but cannot create, update, or delete them. `CUSTOMER` role access is blocked for advisor transaction APIs.
+
+Completed `BUY`, `SIP_INSTALLMENT`, and `SWITCH_IN` transactions update or create the active portfolio holding for the folio and scheme. Completed `SELL` and `SWITCH_OUT` transactions reduce holding units and value. Failed or cancelled transactions do not affect holdings.
+
+Create transaction:
+
+```bash
+curl -X POST http://localhost:8010/api/transactions \
+  -H "Authorization: Bearer <advisor-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"customer_id":"<customer-id>","folio_id":"<folio-id>","scheme_id":"<scheme-id>","transaction_type":"BUY","transaction_status":"COMPLETED","amount":"10000.00","units":"100.0000","nav":"100.0000","transaction_date":"2026-05-18T00:00:00Z"}'
+```
+
+List transactions:
+
+```bash
+curl "http://localhost:8010/api/transactions?transaction_type=BUY&transaction_status=COMPLETED&limit=50&offset=0" \
+  -H "Authorization: Bearer <access-token>"
+```
+
+Customer transaction summary:
+
+```bash
+curl http://localhost:8010/api/customers/<customer-id>/transaction-summary \
+  -H "Authorization: Bearer <access-token>"
+```
+
+## NAV + Valuation Module
+
+v0.6 adds NAV history and real holding valuation updates.
+
+`SUPER_ADMIN` can create, update, and delete NAV records. `ADVISOR` and `COMPLIANCE` can read NAV records. `CUSTOMER` access is blocked for NAV APIs.
+
+Create NAV:
+
+```bash
+curl -X POST http://localhost:8010/api/navs \
+  -H "Authorization: Bearer <super-admin-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"scheme_id":"<scheme-id>","nav_date":"2026-05-18","nav_value":"123.4500","source":"manual"}'
+```
+
+List NAVs:
+
+```bash
+curl "http://localhost:8010/api/navs?scheme_id=<scheme-id>&date_from=2026-05-01&date_to=2026-05-18&limit=50&offset=0" \
+  -H "Authorization: Bearer <access-token>"
+```
+
+Recalculate holding valuations with latest NAV:
+
+```bash
+curl -X POST http://localhost:8010/api/portfolio-holdings/recalculate-valuations \
   -H "Authorization: Bearer <access-token>"
 ```
 
